@@ -5,12 +5,24 @@ import AppKit
 @MainActor
 final class BlurEngine {
     var depth: Double = 0.8 {
-        didSet { overlays.forEach { $0.alphaValue = depth } }
+        didSet { overlays.forEach { $0.window.alphaValue = depth } }
     }
 
-    private var overlays: [NSWindow] = []
+    /// Bundle IDs whose windows are cut out of the blur.
+    var clearApps: Set<String> = [] {
+        didSet { holes = []; refresh() }
+    }
+
+    private struct Overlay {
+        let window: NSWindow
+        let blur: NSVisualEffectView
+        let screenFrame: NSRect
+    }
+
+    private var overlays: [Overlay] = []
     private var timer: Timer?
     private var target: CGWindowID = 0
+    private var holes: [CGRect] = []
 
     var isOn: Bool { !overlays.isEmpty }
 
@@ -28,35 +40,80 @@ final class BlurEngine {
     func stop() {
         timer?.invalidate()
         timer = nil
-        overlays.forEach { $0.orderOut(nil) }
+        overlays.forEach { $0.window.orderOut(nil) }
         overlays = []
         target = 0
+        holes = []
     }
 
     private func refresh() {
         // While Tacet's own panel is in front, leave the blur where it is.
-        guard let app = NSWorkspace.shared.frontmostApplication,
+        guard isOn, let app = NSWorkspace.shared.frontmostApplication,
               app.processIdentifier != getpid() else { return }
         let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
             as? [[String: Any]] ?? []
         guard let front = Self.topWindow(in: list, pid: app.processIdentifier) else {
-            overlays.forEach { $0.orderOut(nil) }
+            overlays.forEach { $0.window.orderOut(nil) }
             target = 0
             return
         }
-        guard front != target else { return }
-        target = front
-        overlays.forEach { $0.order(.below, relativeTo: Int(front)) }
+        if front != target {
+            target = front
+            overlays.forEach { $0.window.order(.below, relativeTo: Int(front)) }
+        }
+        let newHoles = clearWindowRects(in: list)
+        if newHoles != holes {
+            holes = newHoles
+            overlays.forEach { applyMask($0) }
+        }
     }
 
-    /// The front-most normal window owned by `pid`. `list` is CGWindowList output, front to back.
+    /// Global top-left-origin bounds of every normal window owned by an Always clear app.
+    private func clearWindowRects(in list: [[String: Any]]) -> [CGRect] {
+        guard !clearApps.isEmpty else { return [] }
+        return list.compactMap { w in
+            guard (w[kCGWindowLayer as String] as? Int) == 0,
+                  let pid = w[kCGWindowOwnerPID as String] as? pid_t,
+                  let id = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier,
+                  clearApps.contains(id),
+                  let b = w[kCGWindowBounds as String] as? NSDictionary
+            else { return nil }
+            return CGRect(dictionaryRepresentation: b)
+        }
+    }
+
+    // shortcut: a hole shows everything under the overlay in that rect, including parts of other
+    // windows stacked above the clear window; fine while clear apps are usually side by side.
+    private func applyMask(_ overlay: Overlay) {
+        guard !holes.isEmpty else { overlay.blur.maskImage = nil; return }
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? overlay.screenFrame.height
+        let local = holes.map { Self.localRect($0, screenFrame: overlay.screenFrame, primaryHeight: primaryHeight) }
+        overlay.blur.maskImage = NSImage(size: overlay.screenFrame.size, flipped: false) { rect in
+            NSColor.black.setFill()
+            rect.fill()
+            local.forEach { $0.fill(using: .clear) }
+            return true
+        }
+    }
+
+    /// Converts CGWindowList bounds (global, top-left origin) into a screen's own bottom-left coordinates.
+    nonisolated static func localRect(_ cg: CGRect, screenFrame: NSRect, primaryHeight: CGFloat) -> NSRect {
+        NSRect(x: cg.minX - screenFrame.minX,
+               y: primaryHeight - cg.maxY - screenFrame.minY,
+               width: cg.width, height: cg.height)
+    }
+
+    /// The front-most visible normal window owned by `pid`. `list` is CGWindowList output, front to back.
+    /// Skips fully transparent windows: web apps (PWAs) keep an invisible one in front of the real one.
     nonisolated static func topWindow(in list: [[String: Any]], pid: pid_t) -> CGWindowID? {
         list.first {
-            ($0[kCGWindowOwnerPID as String] as? pid_t) == pid && ($0[kCGWindowLayer as String] as? Int) == 0
+            ($0[kCGWindowOwnerPID as String] as? pid_t) == pid
+                && ($0[kCGWindowLayer as String] as? Int) == 0
+                && (($0[kCGWindowAlpha as String] as? Double) ?? 1) > 0
         }?[kCGWindowNumber as String] as? CGWindowID
     }
 
-    private func makeOverlay(for screen: NSScreen) -> NSWindow {
+    private func makeOverlay(for screen: NSScreen) -> Overlay {
         let window = NSWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
         window.isOpaque = false
         window.backgroundColor = .clear
@@ -72,6 +129,8 @@ final class BlurEngine {
         blur.state = .active
         window.contentView = blur
         window.setFrame(screen.frame, display: false)
-        return window
+        let overlay = Overlay(window: window, blur: blur, screenFrame: screen.frame)
+        applyMask(overlay)
+        return overlay
     }
 }

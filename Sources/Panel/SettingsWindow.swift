@@ -1,4 +1,5 @@
 import AppKit
+import ServiceManagement
 import SwiftUI
 
 /// A standard macOS settings window for the tuning values.
@@ -22,9 +23,23 @@ final class SettingsWindow {
 
 private struct SettingsView: View {
     @Bindable var state: TacetState
+    @State private var loginStatus = SMAppService.mainApp.status
+    @State private var loginError: String?
 
     var body: some View {
         Form {
+            Section {
+                Toggle("Open at login", isOn: Binding(get: { loginStatus == .enabled }, set: setOpensAtLogin))
+                if loginStatus == .requiresApproval {
+                    LabeledContent("Allow Tacet in Login Items to finish turning this on.") {
+                        Button("Open Login Items") { SMAppService.openSystemSettingsLoginItems() }
+                    }
+                }
+                if let loginError {
+                    Text(loginError).font(.callout).foregroundStyle(.red)
+                }
+            }
+
             Section {
                 stepper("Blur after settling in for", $state.tuning.settleAfter, 5...120, step: 5, unit: "s")
                 stepper("If you typed or scrolled within", $state.tuning.recentInput, 1...30, step: 1, unit: "s")
@@ -67,6 +82,17 @@ private struct SettingsView: View {
         .onChange(of: state.tuning.darkenAfterMinutes) { _, first in
             if state.tuning.darkenMoreAfterMinutes <= first { state.tuning.darkenMoreAfterMinutes = first + 1 }
         }
+    }
+
+    private func setOpensAtLogin(_ on: Bool) {
+        do {
+            try on ? SMAppService.mainApp.register() : SMAppService.mainApp.unregister()
+            loginError = nil
+        } catch {
+            // Fails when Tacet runs from the terminal (swift run) rather than as an installed app.
+            loginError = "Couldn't change this: \(error.localizedDescription)"
+        }
+        loginStatus = SMAppService.mainApp.status
     }
 
     private func stepper(_ label: String, _ value: Binding<Double>, _ range: ClosedRange<Double>,

@@ -20,10 +20,10 @@ swift run
 ```
 Tacet/
 ├── Package.swift
-├── Sources/Tacet/
-│   ├── App/      Entry point, menu bar extra, and the saved settings
-│   ├── Panel/    Liquid Glass control panel (tiles, Depth slider, Always clear) and the menu bar circle
+├── Sources/
+│   ├── App/      Entry point and the saved settings
+│   ├── Panel/    Menu bar dial and the Liquid Glass control panel
 │   ├── Engine/   Per-screen overlay windows below the focused window, deeper layers over windows left alone
 │   └── Focus/    Auto-focus: blur on when you settle in, lift when you hop between apps
-└── Tests/TacetTests/
+└── Tests/
 ```

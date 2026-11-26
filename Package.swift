@@ -5,7 +5,7 @@ let package = Package(
     name: "Tacet",
     platforms: [.macOS(.v26)],
     targets: [
-        .executableTarget(name: "Tacet"),
-        .testTarget(name: "TacetTests", dependencies: ["Tacet"]),
+        .executableTarget(name: "Tacet", path: "Sources"),
+        .testTarget(name: "TacetTests", dependencies: ["Tacet"], path: "Tests"),
     ]
 )

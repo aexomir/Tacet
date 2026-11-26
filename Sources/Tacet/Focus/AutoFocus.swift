@@ -2,10 +2,10 @@ import AppKit
 
 /// Decides when you've settled into one app (blur on) or are hopping between apps (blur off).
 struct FocusDecider {
-    var settleAfter: TimeInterval = 20      // seconds in one app before blurring
-    var recentInput: TimeInterval = 5       // must have typed or scrolled this recently
-    var hopWindow: TimeInterval = 10        // look back this far for app switches
-    var hopsToLift = 3                      // this many switches in the window lifts the blur
+    let settleAfter: TimeInterval = 20      // seconds in one app before blurring
+    let recentInput: TimeInterval = 5       // must have typed or scrolled this recently
+    let hopWindow: TimeInterval = 10        // look back this far for app switches
+    let hopsToLift = 3                      // this many switches in the window lifts the blur
 
     private var inAppSince: TimeInterval = 0
     private var switches: [TimeInterval] = []

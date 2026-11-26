@@ -19,10 +19,11 @@ struct WindowInfo {
     }
 }
 
-/// Covers every screen with click-through blur windows. The first layer sits directly below the
-/// focused window; extra layers sit above windows you haven't touched in a while, so blur
-/// deepens with neglect. macOS draws the blur (NSVisualEffectView, behind-window blending),
-/// so no Screen Recording permission.
+/// Covers every screen with click-through windows. The first layer, a blur, sits directly below the
+/// focused window; extra dimming layers sit above windows you haven't touched in a while, so the
+/// background fades further with neglect. macOS draws the blur (NSVisualEffectView, behind-window
+/// blending), so no Screen Recording permission. Deeper layers dim instead of blurring again because
+/// every stacked blur is another full-screen blur pass in WindowServer.
 @MainActor
 final class BlurEngine {
     var depth: Double = 0.8 {
@@ -34,12 +35,12 @@ final class BlurEngine {
         didSet { holes = nil; refresh() }
     }
 
-    /// A window untouched this long gets one more blur layer on top of it, per entry.
+    /// A window untouched this long gets one more dimming layer on top of it, per entry.
     static let deepenAfter: [TimeInterval] = [5 * 60, 30 * 60]
 
     private struct Overlay {
         let window: NSWindow
-        let blur: NSVisualEffectView
+        let view: NSView  // NSVisualEffectView for layer 0, a plain dimming view for deeper layers
         let screenFrame: NSRect
         let level: Int  // 0 = below the focused window, 1... = deeper layers
     }
@@ -156,7 +157,7 @@ final class BlurEngine {
         windows.filter { $0.isNormal && $0.isVisible && $0.pid != pid }.map(\.id)
     }
 
-    // shortcut: deeper layers at 60% strength each; tune by eye.
+    // shortcut: deeper layers at 60% of the depth each, over a 35% black dim; tune by eye.
     private func alpha(for level: Int) -> Double { level == 0 ? depth : depth * 0.6 }
 
     /// Global top-left-origin bounds of every normal window owned by an Always clear app.
@@ -169,29 +170,37 @@ final class BlurEngine {
         return windows.compactMap { w in w.isNormal && pids.contains(w.pid) ? w.bounds : nil }
     }
 
-    /// Builds one mask per screen and shares it with that screen's deeper layers.
+    /// Cuts Always clear windows out of every layer: an image mask for the blur, a shape mask for dims.
     private func applyMasks() {
-        let perLevel = overlays.count / (Self.deepenAfter.count + 1)  // overlays are level-major, screens in order
-        for (i, overlay) in overlays.enumerated() {
-            overlay.blur.maskImage = i < perLevel ? mask(for: overlay.screenFrame) : overlays[i % perLevel].blur.maskImage
+        for overlay in overlays {
+            let cutouts = holeRects(on: overlay.screenFrame)
+            let bounds = NSRect(origin: .zero, size: overlay.screenFrame.size)
+            if let blur = overlay.view as? NSVisualEffectView {
+                blur.maskImage = cutouts.isEmpty ? nil : NSImage(size: bounds.size, flipped: false) { rect in
+                    NSColor.black.setFill()
+                    rect.fill()
+                    cutouts.forEach { $0.fill(using: .clear) }
+                    return true
+                }
+            } else {
+                let shape = CAShapeLayer()
+                let holesPath = CGMutablePath()
+                holesPath.addRects(cutouts)
+                shape.path = CGPath(rect: bounds, transform: nil).subtracting(holesPath)
+                overlay.view.layer?.mask = cutouts.isEmpty ? nil : shape
+            }
         }
     }
 
     // shortcut: a hole shows everything under the overlay in that rect, including parts of other
     // windows stacked above the clear window; fine while clear apps are usually side by side.
-    private func mask(for screenFrame: NSRect) -> NSImage? {
+    /// Always clear windows on this screen, in the screen's own bottom-left coordinates.
+    private func holeRects(on screenFrame: NSRect) -> [NSRect] {
         let primaryHeight = NSScreen.screens.first?.frame.height ?? screenFrame.height
         let screen = NSRect(origin: .zero, size: screenFrame.size)
-        let local = (holes ?? [])
+        return (holes ?? [])
             .map { Self.localRect($0, screenFrame: screenFrame, primaryHeight: primaryHeight) }
             .filter { $0.intersects(screen) }
-        guard !local.isEmpty else { return nil }  // no full-screen bitmap for screens without a clear window
-        return NSImage(size: screenFrame.size, flipped: false) { rect in
-            NSColor.black.setFill()
-            rect.fill()
-            local.forEach { $0.fill(using: .clear) }
-            return true
-        }
     }
 
     /// Converts CGWindowList bounds (global, top-left origin) into a screen's own bottom-left coordinates.
@@ -216,12 +225,20 @@ final class BlurEngine {
         window.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenNone]
         window.alphaValue = alpha(for: level)
 
-        let blur = NSVisualEffectView()
-        blur.material = .fullScreenUI
-        blur.blendingMode = .behindWindow
-        blur.state = .active
-        window.contentView = blur
+        let view: NSView
+        if level == 0 {
+            let blur = NSVisualEffectView()
+            blur.material = .fullScreenUI
+            blur.blendingMode = .behindWindow
+            blur.state = .active
+            view = blur
+        } else {
+            view = NSView()
+            view.wantsLayer = true
+            view.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.35).cgColor
+        }
+        window.contentView = view
         window.setFrame(screen.frame, display: false)
-        return Overlay(window: window, blur: blur, screenFrame: screen.frame, level: level)
+        return Overlay(window: window, view: view, screenFrame: screen.frame, level: level)
     }
 }

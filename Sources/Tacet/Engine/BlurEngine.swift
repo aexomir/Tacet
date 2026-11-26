@@ -1,5 +1,24 @@
 import AppKit
 
+/// The CGWindowList fields Tacet reads, parsed once per refresh.
+struct WindowInfo {
+    let id: CGWindowID
+    let pid: pid_t
+    let isNormal: Bool   // layer 0: an app's own window, not a menu, panel or the Dock
+    let isVisible: Bool  // alpha > 0: web apps (PWAs) keep an invisible window in front of the real one
+    let bounds: CGRect?  // global, top-left origin
+
+    init?(_ w: [String: Any]) {
+        guard let id = w[kCGWindowNumber as String] as? CGWindowID,
+              let pid = w[kCGWindowOwnerPID as String] as? pid_t else { return nil }
+        self.id = id
+        self.pid = pid
+        isNormal = (w[kCGWindowLayer as String] as? Int) == 0
+        isVisible = ((w[kCGWindowAlpha as String] as? Double) ?? 1) > 0
+        bounds = (w[kCGWindowBounds as String] as? NSDictionary).flatMap { CGRect(dictionaryRepresentation: $0) }
+    }
+}
+
 /// Covers every screen with click-through blur windows. The first layer sits directly below the
 /// focused window; extra layers sit above windows you haven't touched in a while, so blur
 /// deepens with neglect. macOS draws the blur (NSVisualEffectView, behind-window blending),
@@ -32,7 +51,7 @@ final class BlurEngine {
     private var lastFocused: [CGWindowID: TimeInterval] = [:]
     private var startedAt: TimeInterval = 0
 
-    var isOn: Bool { !overlays.isEmpty }
+    private var isOn: Bool { !overlays.isEmpty }
 
     func start() {
         guard !isOn else { return }
@@ -63,11 +82,11 @@ final class BlurEngine {
         // While Tacet's own panel is in front, leave the blur where it is.
         guard isOn, let app = NSWorkspace.shared.frontmostApplication,
               app.processIdentifier != getpid() else { return }
-        let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
-            as? [[String: Any]] ?? []
+        let windows = (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+            as? [[String: Any]] ?? []).compactMap(WindowInfo.init)
         let now = ProcessInfo.processInfo.systemUptime
-        let stack = Self.visibleWindows(in: list, excluding: getpid())
-        let front = Self.topWindow(in: list, pid: app.processIdentifier)
+        let stack = Self.visibleWindows(in: windows, excluding: getpid())
+        let front = Self.topWindow(in: windows, pid: app.processIdentifier)
         if let front { lastFocused[front] = now }
         lastFocused = lastFocused.filter { stack.contains($0.key) }
 
@@ -86,7 +105,7 @@ final class BlurEngine {
             }
         }
 
-        let newHoles = clearWindowRects(in: list)
+        let newHoles = clearWindowRects(in: windows)
         if newHoles != holes {
             holes = newHoles
             overlays.forEach { applyMask($0) }
@@ -103,29 +122,20 @@ final class BlurEngine {
     }
 
     /// IDs of visible normal windows, front to back, leaving out `pid`'s own.
-    nonisolated static func visibleWindows(in list: [[String: Any]], excluding pid: pid_t) -> [CGWindowID] {
-        list.compactMap {
-            guard ($0[kCGWindowLayer as String] as? Int) == 0,
-                  (($0[kCGWindowAlpha as String] as? Double) ?? 1) > 0,
-                  ($0[kCGWindowOwnerPID as String] as? pid_t) != pid else { return nil }
-            return $0[kCGWindowNumber as String] as? CGWindowID
-        }
+    nonisolated static func visibleWindows(in windows: [WindowInfo], excluding pid: pid_t) -> [CGWindowID] {
+        windows.filter { $0.isNormal && $0.isVisible && $0.pid != pid }.map(\.id)
     }
 
     // shortcut: deeper layers at 60% strength each; tune by eye.
     private func alpha(for level: Int) -> Double { level == 0 ? depth : depth * 0.6 }
 
     /// Global top-left-origin bounds of every normal window owned by an Always clear app.
-    private func clearWindowRects(in list: [[String: Any]]) -> [CGRect] {
+    private func clearWindowRects(in windows: [WindowInfo]) -> [CGRect] {
         guard !clearApps.isEmpty else { return [] }
-        return list.compactMap { w in
-            guard (w[kCGWindowLayer as String] as? Int) == 0,
-                  let pid = w[kCGWindowOwnerPID as String] as? pid_t,
-                  let id = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier,
-                  clearApps.contains(id),
-                  let b = w[kCGWindowBounds as String] as? NSDictionary
-            else { return nil }
-            return CGRect(dictionaryRepresentation: b)
+        return windows.compactMap { w in
+            guard w.isNormal, let id = NSRunningApplication(processIdentifier: w.pid)?.bundleIdentifier,
+                  clearApps.contains(id) else { return nil }
+            return w.bounds
         }
     }
 
@@ -150,14 +160,9 @@ final class BlurEngine {
                width: cg.width, height: cg.height)
     }
 
-    /// The front-most visible normal window owned by `pid`. `list` is CGWindowList output, front to back.
-    /// Skips fully transparent windows: web apps (PWAs) keep an invisible one in front of the real one.
-    nonisolated static func topWindow(in list: [[String: Any]], pid: pid_t) -> CGWindowID? {
-        list.first {
-            ($0[kCGWindowOwnerPID as String] as? pid_t) == pid
-                && ($0[kCGWindowLayer as String] as? Int) == 0
-                && (($0[kCGWindowAlpha as String] as? Double) ?? 1) > 0
-        }?[kCGWindowNumber as String] as? CGWindowID
+    /// The front-most visible normal window owned by `pid`. `windows` is front to back.
+    nonisolated static func topWindow(in windows: [WindowInfo], pid: pid_t) -> CGWindowID? {
+        windows.first { $0.pid == pid && $0.isNormal && $0.isVisible }?.id
     }
 
     private func makeOverlay(for screen: NSScreen, level: Int) -> Overlay {

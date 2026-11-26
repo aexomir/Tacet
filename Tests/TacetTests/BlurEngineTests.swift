@@ -28,7 +28,7 @@ import Testing
         win(5, pid: 42, layer: 0, alpha: 0),  // invisible helper window web apps keep in front
         win(3, pid: 42, layer: 0),   // the focused document window
         win(4, pid: 42, layer: 0),   // a window behind it
-    ]
+    ].compactMap(WindowInfo.init)
     #expect(BlurEngine.topWindow(in: list, pid: 42) == 3)
     #expect(BlurEngine.topWindow(in: list, pid: 99) == nil)
 }

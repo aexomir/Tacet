@@ -1,11 +1,13 @@
 import AppKit
 
-/// Covers every screen with a click-through blur window ordered directly below the focused window.
-/// macOS draws the blur (NSVisualEffectView, behind-window blending), so no Screen Recording permission.
+/// Covers every screen with click-through blur windows. The first layer sits directly below the
+/// focused window; extra layers sit above windows you haven't touched in a while, so blur
+/// deepens with neglect. macOS draws the blur (NSVisualEffectView, behind-window blending),
+/// so no Screen Recording permission.
 @MainActor
 final class BlurEngine {
     var depth: Double = 0.8 {
-        didSet { overlays.forEach { $0.window.alphaValue = depth } }
+        didSet { overlays.forEach { $0.window.alphaValue = alpha(for: $0.level) } }
     }
 
     /// Bundle IDs whose windows are cut out of the blur.
@@ -13,22 +15,32 @@ final class BlurEngine {
         didSet { holes = []; refresh() }
     }
 
+    /// A window untouched this long gets one more blur layer on top of it, per entry.
+    static let deepenAfter: [TimeInterval] = [5 * 60, 30 * 60]
+
     private struct Overlay {
         let window: NSWindow
         let blur: NSVisualEffectView
         let screenFrame: NSRect
+        let level: Int  // 0 = below the focused window, 1... = deeper layers
     }
 
     private var overlays: [Overlay] = []
     private var timer: Timer?
-    private var target: CGWindowID = 0
+    private var anchors: [CGWindowID?] = []  // per level: the window each layer is placed against
     private var holes: [CGRect] = []
+    private var lastFocused: [CGWindowID: TimeInterval] = [:]
+    private var startedAt: TimeInterval = 0
 
     var isOn: Bool { !overlays.isEmpty }
 
     func start() {
         guard !isOn else { return }
-        overlays = NSScreen.screens.map(makeOverlay)
+        startedAt = ProcessInfo.processInfo.systemUptime
+        overlays = (0...Self.deepenAfter.count).flatMap { level in
+            NSScreen.screens.map { makeOverlay(for: $0, level: level) }
+        }
+        anchors = Array(repeating: nil, count: Self.deepenAfter.count + 1)
         // shortcut: polls the window list 4x a second because tracking window focus inside an app
         // without Accessibility has no notification; replace if it shows up in Activity Monitor.
         timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
@@ -42,8 +54,9 @@ final class BlurEngine {
         timer = nil
         overlays.forEach { $0.window.orderOut(nil) }
         overlays = []
-        target = 0
+        anchors = []
         holes = []
+        lastFocused = [:]
     }
 
     private func refresh() {
@@ -52,21 +65,55 @@ final class BlurEngine {
               app.processIdentifier != getpid() else { return }
         let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
             as? [[String: Any]] ?? []
-        guard let front = Self.topWindow(in: list, pid: app.processIdentifier) else {
-            overlays.forEach { $0.window.orderOut(nil) }
-            target = 0
-            return
+        let now = ProcessInfo.processInfo.systemUptime
+        let stack = Self.visibleWindows(in: list, excluding: getpid())
+        let front = Self.topWindow(in: list, pid: app.processIdentifier)
+        if let front { lastFocused[front] = now }
+        lastFocused = lastFocused.filter { stack.contains($0.key) }
+
+        let deep = front.map { front in
+            Self.deepAnchors(stack: stack, front: front, thresholds: Self.deepenAfter) {
+                now - (self.lastFocused[$0] ?? self.startedAt)
+            }
+        } ?? []
+        let wanted = [front] + (deep.isEmpty ? Array(repeating: nil, count: Self.deepenAfter.count) : deep)
+        for level in wanted.indices where wanted[level] != anchors[level] {
+            anchors[level] = wanted[level]
+            for overlay in overlays where overlay.level == level {
+                guard let anchor = wanted[level] else { overlay.window.orderOut(nil); continue }
+                // Layer 0 goes under the focused window; deeper layers go over the stale window.
+                overlay.window.order(level == 0 ? .below : .above, relativeTo: Int(anchor))
+            }
         }
-        if front != target {
-            target = front
-            overlays.forEach { $0.window.order(.below, relativeTo: Int(front)) }
-        }
+
         let newHoles = clearWindowRects(in: list)
         if newHoles != holes {
             holes = newHoles
             overlays.forEach { applyMask($0) }
         }
     }
+
+    /// For each threshold, the front-most window below `front` that has gone untouched at least that long.
+    /// shortcut: everything under that window gets the extra layer too, even if it was used more recently;
+    /// fine because macOS stacks windows roughly by when you last used them.
+    nonisolated static func deepAnchors(stack: [CGWindowID], front: CGWindowID, thresholds: [TimeInterval],
+                                        age: (CGWindowID) -> TimeInterval) -> [CGWindowID?] {
+        let below = stack.drop { $0 != front }.dropFirst()
+        return thresholds.map { t in below.first { age($0) >= t } }
+    }
+
+    /// IDs of visible normal windows, front to back, leaving out `pid`'s own.
+    nonisolated static func visibleWindows(in list: [[String: Any]], excluding pid: pid_t) -> [CGWindowID] {
+        list.compactMap {
+            guard ($0[kCGWindowLayer as String] as? Int) == 0,
+                  (($0[kCGWindowAlpha as String] as? Double) ?? 1) > 0,
+                  ($0[kCGWindowOwnerPID as String] as? pid_t) != pid else { return nil }
+            return $0[kCGWindowNumber as String] as? CGWindowID
+        }
+    }
+
+    // shortcut: deeper layers at 60% strength each; tune by eye.
+    private func alpha(for level: Int) -> Double { level == 0 ? depth : depth * 0.6 }
 
     /// Global top-left-origin bounds of every normal window owned by an Always clear app.
     private func clearWindowRects(in list: [[String: Any]]) -> [CGRect] {
@@ -113,7 +160,7 @@ final class BlurEngine {
         }?[kCGWindowNumber as String] as? CGWindowID
     }
 
-    private func makeOverlay(for screen: NSScreen) -> Overlay {
+    private func makeOverlay(for screen: NSScreen, level: Int) -> Overlay {
         let window = NSWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
         window.isOpaque = false
         window.backgroundColor = .clear
@@ -121,7 +168,7 @@ final class BlurEngine {
         window.ignoresMouseEvents = true
         window.isReleasedWhenClosed = false
         window.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenNone]
-        window.alphaValue = depth
+        window.alphaValue = alpha(for: level)
 
         let blur = NSVisualEffectView()
         blur.material = .fullScreenUI
@@ -129,7 +176,7 @@ final class BlurEngine {
         blur.state = .active
         window.contentView = blur
         window.setFrame(screen.frame, display: false)
-        let overlay = Overlay(window: window, blur: blur, screenFrame: screen.frame)
+        let overlay = Overlay(window: window, blur: blur, screenFrame: screen.frame, level: level)
         applyMask(overlay)
         return overlay
     }

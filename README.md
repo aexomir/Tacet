@@ -15,6 +15,20 @@ The window you're working in stays sharp; everything else softens into a live bl
 swift run
 ```
 
+## Install
+
+Download the DMG from [Releases](../../releases), open it, and drag Tacet to Applications. It isn't notarized yet, so the first time, right-click Tacet in Applications and choose Open.
+
+## Release
+
+Push a version tag and GitHub Actions builds the DMG and publishes the release:
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+To build the DMG locally instead: `scripts/make-dmg.sh 0.1.0` (output in `dist/`).
+
 ## Folder structure
 
 ```
@@ -25,5 +39,7 @@ Tacet/
 │   ├── Panel/    Menu bar dial, the Liquid Glass control panel, and the Settings window
 │   ├── Engine/   Per-screen overlay windows below the focused window, deeper layers over windows left alone
 │   └── Focus/    Auto-focus: blur on when you settle in, lift when you hop between apps
-└── Tests/
+├── Tests/
+├── scripts/  make-dmg.sh: builds Tacet.app and the DMG
+└── .github/workflows/release.yml
 ```

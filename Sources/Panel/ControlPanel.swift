@@ -51,10 +51,17 @@ struct ControlPanel: View {
     let presentation: PanelPresentation
 
     private let tileSpring = Animation.spring(response: 0.3, dampingFraction: 0.75)
+    private let plannerAvailable = FocusPlanner.isAvailable
+
+    @State private var task = ""
+    @State private var isPlanning = false
+    @State private var outcome: String?
+    @State private var canUndo = false
 
     var body: some View {
         GlassEffectContainer(spacing: 10) {
             VStack(spacing: 10) {
+                if plannerAvailable { intentTile }
                 HStack(spacing: 10) {
                     powerTile
                     autoFocusTile
@@ -71,7 +78,69 @@ struct ControlPanel: View {
         .scaleEffect(presentation.isOpen ? 1 : 0.9, anchor: .topTrailing)
         .opacity(presentation.isOpen ? 1 : 0)
         .padding(12)  // room for the glass shadow inside the transparent panel
+        .fixedSize(horizontal: false, vertical: true)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { presentation.onHeightChange($0) }
         .frame(width: 314)
+    }
+
+    // "What are you working on?" → on-device model picks the apps to keep clear and the depth.
+    private var intentTile: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "sparkles")
+                    .foregroundStyle(.secondary)
+                    .symbolEffect(.pulse, isActive: isPlanning)
+                    .accessibilityHidden(true)
+                TextField("What are you working on?", text: $task)
+                    .textFieldStyle(.plain)
+                    .onSubmit(plan)
+                    .disabled(isPlanning)
+                if isPlanning { ProgressView().controlSize(.small) }
+            }
+            if let outcome {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(outcome).font(.caption).foregroundStyle(.secondary)
+                    Spacer(minLength: 4)
+                    if canUndo {
+                        Button("Undo") {
+                            withAnimation(tileSpring) {
+                                state.undoPlan()
+                                self.outcome = nil
+                                canUndo = false
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .font(.caption.weight(.medium))
+                    }
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .padding(12)
+        .glassEffect(.regular, in: .rect(cornerRadius: 18))
+    }
+
+    private func plan() {
+        let text = task.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !isPlanning else { return }
+        isPlanning = true
+        Task {
+            do {
+                let plan = try await FocusPlanner.plan(for: text)
+                withAnimation(tileSpring) {
+                    state.apply(plan)
+                    let names = ListFormatter.localizedString(byJoining: plan.apps.map(\.name))
+                    outcome = "Keeping \(names) clear · \(levelName(isOn: true, depth: plan.depth))"
+                    canUndo = true
+                }
+            } catch {
+                withAnimation(tileSpring) {
+                    outcome = error.localizedDescription
+                    canUndo = false
+                }
+            }
+            isPlanning = false
+        }
     }
 
     private var powerTile: some View {

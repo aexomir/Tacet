@@ -6,6 +6,7 @@ import SwiftUI
 final class PanelPresentation {
     var isOpen = false
     @ObservationIgnored var openSettings: () -> Void = {}
+    @ObservationIgnored var onHeightChange: (CGFloat) -> Void = { _ in }
 }
 
 /// The menu bar dial and the frameless panel it opens. Replaces MenuBarExtra, whose window
@@ -27,6 +28,7 @@ final class StatusItemController {
         settings = SettingsWindow(state: state)
         panel.onCancel = { [weak self] in self?.close() }
         presentation.openSettings = { [weak self] in self?.showSettings() }
+        presentation.onHeightChange = { [weak self] in self?.fit(height: $0) }
 
         if let button = item.button {
             button.target = self
@@ -73,6 +75,15 @@ final class StatusItemController {
         clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             MainActor.assumeIsolated { self?.close() }
         }
+    }
+
+    /// Grows or shrinks the panel downward when its content changes, keeping it pinned under the menu bar.
+    private func fit(height: CGFloat) {
+        guard panel.isVisible, abs(panel.frame.height - height) > 0.5 else { return }
+        var frame = panel.frame
+        frame.origin.y = frame.maxY - height
+        frame.size.height = height
+        panel.setFrame(frame, display: true)
     }
 
     private func close() {

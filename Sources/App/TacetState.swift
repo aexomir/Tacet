@@ -34,6 +34,24 @@ final class TacetState {
             defaults.set(try? JSONEncoder().encode(tuning), forKey: "tuning")
         }
     }
+    /// What a focus plan replaced, so the panel can offer Undo.
+    @ObservationIgnored private var beforePlan: (clearApps: [String], depth: Double, isOn: Bool)?
+
+    func apply(_ plan: FocusPlanner.Plan) {
+        beforePlan = beforePlan ?? (clearApps, depth, isOn)
+        clearApps = plan.apps.map(\.bundleID)
+        depth = plan.depth
+        isOn = true
+    }
+
+    func undoPlan() {
+        guard let before = beforePlan else { return }
+        clearApps = before.clearApps
+        depth = before.depth
+        isOn = before.isOn
+        beforePlan = nil
+    }
+
     var autoFocusOn: Bool {
         didSet {
             defaults.set(autoFocusOn, forKey: "autoFocus")

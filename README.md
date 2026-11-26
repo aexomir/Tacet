@@ -18,13 +18,14 @@ On a big monitor it's easy to have a dozen windows open and all of them asking f
 - **Turns itself on.** Settle into one app for a bit while typing or scrolling and the blur fades in. Start hopping between apps and it fades out again, because you're probably looking for something.
 - **Lets old windows recede.** A window you haven't touched in 5 minutes gets a little darker, and darker again after 30.
 - **Keeps some apps clear.** Add apps like your editor and terminal to *Always clear* and they never blur.
+- **Sets itself up from a sentence.** Type what you're working on, like "writing my thesis, need my references", and Apple's on-device model picks which of your open apps to keep clear and how deep to blur. Undo puts your own setup back.
 - **Stays out of the way.** No hotkeys to learn and no Dock icon. It's a small dial in the menu bar that fills up as the blur gets deeper.
 
-Click the dial and a Control Center–style panel drops down: a switch for the blur, a switch for Auto-focus, a Depth slider, and your Always clear apps. Everything else, like how quickly Auto-focus reacts and how dark old windows get, is in **Tacet Settings…** at the bottom of the panel or in the dial's right-click menu.
+Click the dial and a Control Center–style panel drops down: the "What are you working on?" field, a switch for the blur, a switch for Auto-focus, a Depth slider, and your Always clear apps. Everything else, like opening at login, how quickly Auto-focus reacts and how dark old windows get, is in **Tacet Settings…** at the bottom of the panel or in the dial's right-click menu.
 
 ## Privacy
 
-Tacet asks for no permissions. It doesn't record your screen and doesn't read what you type. macOS draws the blur itself, and Auto-focus only checks *how long ago* a key was pressed, never which key. Nothing leaves your Mac.
+Tacet asks for no permissions. It doesn't record your screen and doesn't read what you type. macOS draws the blur itself, and Auto-focus only checks *how long ago* a key was pressed, never which key. "What are you working on?" runs on Apple's on-device model and only sees your sentence and the names of your open apps. Nothing leaves your Mac.
 
 ## Install
 
@@ -32,7 +33,7 @@ Tacet asks for no permissions. It doesn't record your screen and doesn't read wh
 2. Open it and drag Tacet into Applications.
 3. The first time, right-click Tacet in Applications and choose **Open**. Tacet isn't notarized by Apple yet, so macOS asks once.
 
-You'll need macOS 26 (Tahoe) or later. Tacet runs on Apple silicon and Intel Macs.
+You'll need macOS 26 (Tahoe) or later. Tacet runs on Apple silicon and Intel Macs. "What are you working on?" needs Apple Intelligence turned on, so it only appears on Apple silicon Macs.
 
 ## Known rough edges
 
@@ -66,7 +67,7 @@ Tacet/
 │   ├── App/      Entry point and the saved settings
 │   ├── Panel/    Menu bar dial, the Liquid Glass control panel, and the Settings window
 │   ├── Engine/   The blur under the focused window and the darker layers over windows left alone
-│   └── Focus/    Auto-focus: on when you settle in, off when you hop between apps
+│   └── Focus/    Auto-focus, and turning "what are you working on?" into a setup
 ├── Tests/
 ├── Assets/       App icon
 ├── scripts/      make-dmg.sh

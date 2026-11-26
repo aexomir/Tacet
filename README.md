@@ -2,7 +2,7 @@
 
 Noise cancelling for your Mac's screen.
 
-The window you're working in stays sharp; everything else softens into a live blur that deepens the longer you leave it alone. Tacet turns itself on when you settle into a window and lifts when you start switching apps. Its whole interface is a circle in the menu bar (○ ◔ ◑ ●) and a Liquid Glass panel styled after Control Center: one on/off tile, Auto-focus, a Depth slider, and a row of apps that always stay clear (a Share shield tile is planned). macOS draws the blur, so Tacet never records your screen or reads what you type.
+The window you're working in stays sharp; everything else softens into a live blur that deepens the longer you leave it alone. Tacet turns itself on when you settle into a window and lifts when you start switching apps. Its whole interface is a circle in the menu bar (○ ◔ ◑ ●) and a Liquid Glass panel styled after Control Center: one on/off tile, Auto-focus, a Depth slider, and a row of apps that always stay clear. macOS draws the blur, so Tacet never records your screen or reads what you type.
 
 ## Requirements
 
@@ -24,9 +24,6 @@ Tacet/
 │   ├── App/      Entry point, menu bar extra, and the saved settings
 │   ├── Panel/    Liquid Glass control panel (tiles, Depth slider, Always clear) and the menu bar circle
 │   ├── Engine/   Per-screen overlay windows below the focused window, deeper layers over windows left alone
-│   ├── Focus/    Auto-focus: blur on when you settle in, lift when you hop between apps
-│   └── Shield/   Screen-share detection for Share shield (not written yet)
+│   └── Focus/    Auto-focus: blur on when you settle in, lift when you hop between apps
 └── Tests/TacetTests/
 ```
-
-Folders appear in the repo as code lands in them.

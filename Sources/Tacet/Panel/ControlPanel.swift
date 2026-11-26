@@ -5,9 +5,40 @@ private func level(isOn: Bool, depth: Double) -> Int {
     !isOn ? 0 : depth < 0.45 ? 1 : depth < 0.75 ? 2 : 3
 }
 
-/// The menu bar circle: hollow when off, filling up with depth.
-func levelGlyph(isOn: Bool, depth: Double) -> String {
-    ["○", "◔", "◑", "●"][level(isOn: isOn, depth: depth)]
+/// How full the dial is: empty when off, then a quarter at the lightest depth up to full.
+func dialFraction(isOn: Bool, depth: Double) -> Double {
+    isOn ? 0.25 + (depth - 0.2) / 0.8 * 0.75 : 0
+}
+
+/// Ring with a pie that fills from 12 o'clock; animates smoothly between fractions.
+private struct Dial: View {
+    var fraction: Double
+
+    var body: some View {
+        ZStack {
+            Circle().stroke(lineWidth: 1.5)
+            Wedge(fraction: fraction).padding(3)
+        }
+    }
+
+    private struct Wedge: Shape {
+        var fraction: Double
+        var animatableData: Double {
+            get { fraction }
+            set { fraction = newValue }
+        }
+
+        func path(in rect: CGRect) -> Path {
+            var path = Path()
+            guard fraction > 0.001 else { return path }
+            let center = CGPoint(x: rect.midX, y: rect.midY)
+            path.move(to: center)
+            path.addArc(center: center, radius: min(rect.width, rect.height) / 2,
+                        startAngle: .degrees(-90), endAngle: .degrees(-90 + 360 * fraction), clockwise: false)
+            path.closeSubpath()
+            return path
+        }
+    }
 }
 
 private func levelName(isOn: Bool, depth: Double) -> String {
@@ -17,6 +48,9 @@ private func levelName(isOn: Bool, depth: Double) -> String {
 /// Control Center–style Liquid Glass panel: power and Auto-focus tiles, Depth slider, Always clear apps.
 struct ControlPanel: View {
     let state: TacetState
+    let presentation: PanelPresentation
+
+    private let tileSpring = Animation.spring(response: 0.3, dampingFraction: 0.75)
 
     var body: some View {
         GlassEffectContainer(spacing: 10) {
@@ -29,21 +63,29 @@ struct ControlPanel: View {
                 clearTile
             }
         }
-        .padding(12)
-        .frame(width: 290)
+        .animation(tileSpring, value: state.isOn)
+        .animation(tileSpring, value: state.autoFocusOn)
+        .animation(tileSpring, value: state.clearApps)
+        // Springs down out of the menu bar like Control Center, and shrinks back on close.
+        .scaleEffect(presentation.isOpen ? 1 : 0.9, anchor: .topTrailing)
+        .opacity(presentation.isOpen ? 1 : 0)
+        .padding(12)  // room for the glass shadow inside the transparent panel
+        .frame(width: 314)
     }
 
     private var powerTile: some View {
         Button { state.isOn.toggle() } label: {
             HStack(spacing: 12) {
-                Text(levelGlyph(isOn: state.isOn, depth: state.depth))
-                    .font(.system(size: 20))
+                Dial(fraction: dialFraction(isOn: state.isOn, depth: state.depth))
+                    .frame(width: 18, height: 18)
                     .frame(width: 40, height: 40)
                     .glassEffect(state.isOn ? .regular.tint(.primary) : .regular, in: .circle)
                     .foregroundStyle(state.isOn ? Color(nsColor: .windowBackgroundColor) : .primary)
                 VStack(alignment: .leading) {
                     Text("Tacet").font(.headline)
-                    Text(levelName(isOn: state.isOn, depth: state.depth)).font(.subheadline).foregroundStyle(.secondary)
+                    Text(levelName(isOn: state.isOn, depth: state.depth))
+                        .font(.subheadline).foregroundStyle(.secondary)
+                        .contentTransition(.interpolate)
                 }
                 Spacer(minLength: 0)
             }
@@ -58,6 +100,7 @@ struct ControlPanel: View {
         Button { state.autoFocusOn.toggle() } label: {
             VStack(alignment: .leading, spacing: 6) {
                 Image(systemName: "sparkles")
+                    .symbolEffect(.bounce, value: state.autoFocusOn)
                     .frame(width: 30, height: 30)
                     .glassEffect(state.autoFocusOn ? .regular.tint(.primary) : .regular, in: .circle)
                     .foregroundStyle(state.autoFocusOn ? Color(nsColor: .windowBackgroundColor) : .primary)
@@ -81,11 +124,11 @@ struct ControlPanel: View {
                     Capsule().fill(.white.opacity(0.9))
                         .frame(width: max(30, geo.size.width * state.depth))
                     HStack {
-                        Text("○").foregroundStyle(.black)
+                        Image(systemName: "circle").foregroundStyle(.black)
                         Spacer()
-                        Text("●")
+                        Image(systemName: "circle.fill")
                     }
-                    .font(.system(size: 13))
+                    .font(.system(size: 11))
                     .padding(.horizontal, 10)
                 }
                 .frame(height: 30)
@@ -113,6 +156,7 @@ struct ControlPanel: View {
             HStack(spacing: 8) {
                 ForEach(state.clearApps, id: \.self) { id in
                     AppIcon(bundleID: id)
+                        .transition(.scale.combined(with: .opacity))
                         .contextMenu { Button("Remove") { state.clearApps.removeAll { $0 == id } } }
                 }
                 Menu {

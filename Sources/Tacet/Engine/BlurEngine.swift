@@ -93,7 +93,9 @@ final class BlurEngine {
         timer = nil
         activation.map(NSWorkspace.shared.notificationCenter.removeObserver)
         activation = nil
-        overlays.forEach { $0.window.orderOut(nil) }
+        for window in overlays.map(\.window) {
+            Self.fade(window, to: 0) { window.orderOut(nil) }
+        }
         overlays = []
         anchors = []
         holes = nil
@@ -124,9 +126,15 @@ final class BlurEngine {
         for level in wanted.indices where wanted[level] != anchors[level] || (level == 0 && !layerZeroInPlace) {
             anchors[level] = wanted[level]
             for overlay in overlays where overlay.level == level {
-                guard let anchor = wanted[level] else { overlay.window.orderOut(nil); continue }
+                guard let anchor = wanted[level] else {
+                    Self.fade(overlay.window, to: 0) { [weak self] in
+                        if self?.anchors[safe: level] == .some(nil) { overlay.window.orderOut(nil) }  // still unwanted
+                    }
+                    continue
+                }
                 // Layer 0 goes under the focused window; deeper layers go over the stale window.
                 overlay.window.order(level == 0 ? .below : .above, relativeTo: Int(anchor))
+                Self.fade(overlay.window, to: alpha(for: level))
             }
         }
 
@@ -155,6 +163,17 @@ final class BlurEngine {
     /// IDs of visible normal windows, front to back, leaving out `pid`'s own.
     nonisolated static func visibleWindows(in windows: [WindowInfo], excluding pid: pid_t) -> [CGWindowID] {
         windows.filter { $0.isNormal && $0.isVisible && $0.pid != pid }.map(\.id)
+    }
+
+    /// Eases a layer in or out, the way system overlays appear rather than snapping.
+    private static func fade(_ window: NSWindow, to alpha: Double, then done: (@MainActor () -> Void)? = nil) {
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = alpha > window.alphaValue ? 0.5 : 0.35
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            window.animator().alphaValue = alpha
+        } completionHandler: {
+            MainActor.assumeIsolated { done?() }
+        }
     }
 
     // shortcut: deeper layers at 60% of the depth each, over a 35% black dim; tune by eye.
@@ -223,7 +242,7 @@ final class BlurEngine {
         window.ignoresMouseEvents = true
         window.isReleasedWhenClosed = false
         window.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenNone]
-        window.alphaValue = alpha(for: level)
+        window.alphaValue = 0  // fades in when first placed
 
         let view: NSView
         if level == 0 {
@@ -241,4 +260,8 @@ final class BlurEngine {
         window.setFrame(screen.frame, display: false)
         return Overlay(window: window, view: view, screenFrame: screen.frame, level: level)
     }
+}
+
+private extension Array {
+    subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil }
 }

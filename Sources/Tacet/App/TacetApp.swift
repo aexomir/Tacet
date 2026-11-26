@@ -2,20 +2,20 @@ import SwiftUI
 
 @main
 struct TacetApp: App {
-    @State private var state = TacetState()
-
-    init() {
-        // Menu bar only: no Dock icon. shortcut: set in code until there's an Info.plist with LSUIElement.
-        NSApplication.shared.setActivationPolicy(.accessory)
-    }
+    @NSApplicationDelegateAdaptor private var delegate: AppDelegate
 
     var body: some Scene {
-        MenuBarExtra {
-            ControlPanel(state: state)
-                .contextMenu { Button("Quit Tacet") { NSApplication.shared.terminate(nil) } }
-        } label: {
-            Text(levelGlyph(isOn: state.isOn, depth: state.depth))
-        }
-        .menuBarExtraStyle(.window)
+        Settings { EmptyView() }  // all UI lives in the status item panel
+    }
+}
+
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var statusItem: StatusItemController?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // Menu bar only: no Dock icon. shortcut: set in code until there's an Info.plist with LSUIElement.
+        NSApp.setActivationPolicy(.accessory)
+        statusItem = StatusItemController(state: TacetState())
     }
 }

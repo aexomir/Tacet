@@ -51,6 +51,12 @@ final class AutoFocus {
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
+        timer?.tolerance = 0.3
+    }
+
+    /// Stops ticking while nobody can see the screen.
+    func setPaused(_ paused: Bool) {
+        timer?.fireDate = paused ? .distantFuture : Date()
     }
 
     func stop() {

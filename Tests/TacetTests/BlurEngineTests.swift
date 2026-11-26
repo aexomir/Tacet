@@ -32,3 +32,15 @@ import Testing
     #expect(BlurEngine.topWindow(in: list, pid: 42) == 3)
     #expect(BlurEngine.topWindow(in: list, pid: 99) == nil)
 }
+
+@Test func detectsWhenBlurNoLongerSitsRightUnderFocus() {
+    func win(_ id: CGWindowID) -> WindowInfo? {
+        WindowInfo([kCGWindowNumber as String: id, kCGWindowOwnerPID as String: pid_t(1)])
+    }
+    let blur: Set<CGWindowID> = [100, 101]
+    let settled = [1, 100, 101, 2].compactMap { win($0) }
+    let raisedLate = [1, 2, 100, 101].compactMap { win($0) }  // new front window rose above the old one after we ordered
+    #expect(BlurEngine.isDirectlyBelow(1, layer: blur, in: settled))
+    #expect(!BlurEngine.isDirectlyBelow(1, layer: blur, in: raisedLate))
+    #expect(!BlurEngine.isDirectlyBelow(2, layer: blur, in: settled))
+}

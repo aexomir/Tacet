@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import Observation
 
 /// Everything the panel shows, kept in sync with the blur engine and saved between launches.
@@ -32,5 +32,29 @@ final class TacetState {
         engine.clearApps = Set(clearApps)
         autoFocus.onChange = { [weak self] on in self?.isOn = on }
         if autoFocusOn { autoFocus.start() }
+        pauseWhileScreenIsUnseen()
+    }
+
+    /// Stops both timers while the display sleeps, the screen is locked, or another user is active.
+    /// TacetState lives as long as the app, so the observers are never removed.
+    private func pauseWhileScreenIsUnseen() {
+        let workspace = NSWorkspace.shared.notificationCenter
+        let distributed = DistributedNotificationCenter.default()
+        let events: [(NotificationCenter, Notification.Name, Bool)] = [
+            (workspace, NSWorkspace.screensDidSleepNotification, true),
+            (workspace, NSWorkspace.screensDidWakeNotification, false),
+            (workspace, NSWorkspace.sessionDidResignActiveNotification, true),
+            (workspace, NSWorkspace.sessionDidBecomeActiveNotification, false),
+            (distributed, Notification.Name("com.apple.screenIsLocked"), true),
+            (distributed, Notification.Name("com.apple.screenIsUnlocked"), false),
+        ]
+        for (center, name, paused) in events {
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.engine.setPaused(paused)
+                    self?.autoFocus.setPaused(paused)
+                }
+            }
+        }
     }
 }

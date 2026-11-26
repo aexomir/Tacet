@@ -76,3 +76,7 @@ Tacet/
 The blur is a click-through window holding an `NSVisualEffectView`, placed directly underneath whichever window is in front. That's why Tacet doesn't need Screen Recording permission.
 
 The icon is the Lull logo.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

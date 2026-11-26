@@ -29,7 +29,8 @@ private struct SettingsView: View {
     var body: some View {
         Form {
             Section {
-                Toggle("Open at login", isOn: Binding(get: { loginStatus == .enabled }, set: setOpensAtLogin))
+                // A closure, not `set: setOpensAtLogin`: passing the method crashes the Swift 6.3 compiler.
+                Toggle("Open at login", isOn: Binding(get: { loginStatus == .enabled }, set: { setOpensAtLogin($0) }))
                 if loginStatus == .requiresApproval {
                     LabeledContent("Allow Tacet in Login Items to finish turning this on.") {
                         Button("Open Login Items") { SMAppService.openSystemSettingsLoginItems() }

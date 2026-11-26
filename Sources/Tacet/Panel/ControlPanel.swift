@@ -11,16 +11,21 @@ private func levelName(isOn: Bool, depth: Double) -> String {
     return depth < 0.45 ? "Light" : depth < 0.75 ? "Medium" : "Deep"
 }
 
-/// Control Center–style Liquid Glass panel: power tile, Depth slider, Always clear apps.
+/// Control Center–style Liquid Glass panel: power and Auto-focus tiles, Depth slider, Always clear apps.
 struct ControlPanel: View {
-    @Binding var isOn: Bool
-    @Binding var depth: Double
-    @Binding var clearApps: [String]
+    @Bindable var state: TacetState
+
+    private var isOn: Bool { state.isOn }
+    private var depth: Double { state.depth }
+    private var clearApps: [String] { state.clearApps }
 
     var body: some View {
         GlassEffectContainer(spacing: 10) {
             VStack(spacing: 10) {
-                powerTile
+                HStack(spacing: 10) {
+                    powerTile
+                    autoFocusTile
+                }
                 depthTile
                 clearTile
             }
@@ -30,7 +35,7 @@ struct ControlPanel: View {
     }
 
     private var powerTile: some View {
-        Button { isOn.toggle() } label: {
+        Button { state.isOn.toggle() } label: {
             HStack(spacing: 12) {
                 Text(levelGlyph(isOn: isOn, depth: depth))
                     .font(.system(size: 20))
@@ -41,13 +46,32 @@ struct ControlPanel: View {
                     Text("Tacet").font(.headline)
                     Text(levelName(isOn: isOn, depth: depth)).font(.subheadline).foregroundStyle(.secondary)
                 }
-                Spacer()
+                Spacer(minLength: 0)
             }
             .padding(12)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 18))
+    }
+
+    private var autoFocusTile: some View {
+        Button { state.autoFocusOn.toggle() } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                Image(systemName: "sparkles")
+                    .frame(width: 30, height: 30)
+                    .glassEffect(state.autoFocusOn ? .regular.tint(.primary) : .regular, in: .circle)
+                    .foregroundStyle(state.autoFocusOn ? Color(nsColor: .windowBackgroundColor) : .primary)
+                Text("Auto-focus").font(.subheadline.weight(.medium))
+            }
+            .padding(12)
+            .frame(maxHeight: .infinity)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 18))
+        .help("Blurs when you settle into one app; lifts when you hop between apps")
+        .accessibilityValue(state.autoFocusOn ? "On" : "Off")
     }
 
     private var depthTile: some View {
@@ -69,7 +93,7 @@ struct ControlPanel: View {
                 .glassEffect(.regular, in: .capsule)
                 .contentShape(.capsule)
                 .gesture(DragGesture(minimumDistance: 0).onChanged { g in
-                    depth = min(1, max(0.2, g.location.x / geo.size.width))
+                    state.depth = min(1, max(0.2, g.location.x / geo.size.width))
                 })
             }
             .frame(height: 30)
@@ -77,7 +101,7 @@ struct ControlPanel: View {
             .accessibilityLabel("Depth")
             .accessibilityValue(levelName(isOn: true, depth: depth))
             .accessibilityAdjustableAction { dir in
-                depth = min(1, max(0.2, depth + (dir == .increment ? 0.1 : -0.1)))
+                state.depth = min(1, max(0.2, depth + (dir == .increment ? 0.1 : -0.1)))
             }
         }
         .padding(12)
@@ -90,12 +114,12 @@ struct ControlPanel: View {
             HStack(spacing: 8) {
                 ForEach(clearApps, id: \.self) { id in
                     AppIcon(bundleID: id)
-                        .contextMenu { Button("Remove") { clearApps.removeAll { $0 == id } } }
+                        .contextMenu { Button("Remove") { state.clearApps.removeAll { $0 == id } } }
                 }
                 Menu {
                     ForEach(addableApps, id: \.bundleIdentifier) { app in
                         Button(app.localizedName ?? app.bundleIdentifier ?? "") {
-                            if let id = app.bundleIdentifier { clearApps.append(id) }
+                            if let id = app.bundleIdentifier { state.clearApps.append(id) }
                         }
                     }
                 } label: {

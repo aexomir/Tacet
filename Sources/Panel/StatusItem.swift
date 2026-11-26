@@ -36,7 +36,7 @@ final class StatusItemController {
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             button.setAccessibilityLabel("Tacet")
         }
-        shownFraction = dialFraction(isOn: state.isOn, depth: state.depth)
+        shownFraction = dialFraction(isOn: state.isOn, depth: state.activeDepth)
         item.button?.image = Self.dialImage(fraction: shownFraction)
         watchState()
     }
@@ -101,11 +101,11 @@ final class StatusItemController {
     /// Re-runs whenever isOn or depth change and slides the dial to the new fill.
     private func watchState() {
         withObservationTracking {
-            _ = (state.isOn, state.depth)
+            _ = (state.isOn, state.activeDepth)
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
-                self.animateDial(to: dialFraction(isOn: self.state.isOn, depth: self.state.depth))
+                self.animateDial(to: dialFraction(isOn: self.state.isOn, depth: self.state.activeDepth))
                 self.watchState()
             }
         }

@@ -55,8 +55,7 @@ struct ControlPanel: View {
 
     @State private var task = ""
     @State private var isPlanning = false
-    @State private var outcome: String?
-    @State private var canUndo = false
+    @State private var planError: String?
 
     var body: some View {
         GlassEffectContainer(spacing: 10) {
@@ -73,7 +72,7 @@ struct ControlPanel: View {
         }
         .animation(tileSpring, value: state.isOn)
         .animation(tileSpring, value: state.autoFocusOn)
-        .animation(tileSpring, value: state.clearApps)
+        .animation(tileSpring, value: state.activeClearApps)
         // Springs down out of the menu bar like Control Center, and shrinks back on close.
         .scaleEffect(presentation.isOpen ? 1 : 0.9, anchor: .topTrailing)
         .opacity(presentation.isOpen ? 1 : 0)
@@ -97,23 +96,22 @@ struct ControlPanel: View {
                     .disabled(isPlanning)
                 if isPlanning { ProgressView().controlSize(.small) }
             }
-            if let outcome {
+            if let plan = state.focusPlan {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(outcome).font(.caption).foregroundStyle(.secondary)
+                    Text("Keeping \(ListFormatter.localizedString(byJoining: plan.apps.map(\.name))) clear · "
+                         + levelName(isOn: true, depth: plan.depth))
+                        .font(.caption).foregroundStyle(.secondary)
+                        .contentTransition(.interpolate)
                     Spacer(minLength: 4)
-                    if canUndo {
-                        Button("Undo") {
-                            withAnimation(tileSpring) {
-                                state.undoPlan()
-                                self.outcome = nil
-                                canUndo = false
-                            }
-                        }
+                    // Ends the query and puts your own Always clear apps and depth back.
+                    Button("Undo") { withAnimation(tileSpring) { state.endPlan() } }
                         .buttonStyle(.plain)
                         .font(.caption.weight(.medium))
-                    }
                 }
                 .transition(.opacity.combined(with: .move(edge: .top)))
+            } else if let planError {
+                Text(planError).font(.caption).foregroundStyle(.secondary)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
         .padding(12)
@@ -129,16 +127,12 @@ struct ControlPanel: View {
             do {
                 let plan = try await FocusPlanner.plan(for: text)
                 withAnimation(tileSpring) {
-                    state.apply(plan)
-                    let names = ListFormatter.localizedString(byJoining: plan.apps.map(\.name))
-                    outcome = "Keeping \(names) clear · \(levelName(isOn: true, depth: plan.depth))"
-                    canUndo = true
+                    state.start(plan)
+                    planError = nil
                 }
             } catch {
-                withAnimation(tileSpring) {
-                    outcome = error.localizedDescription
-                    canUndo = false
-                }
+                // The previous query, if any, stays active; its Undo line keeps showing.
+                withAnimation(tileSpring) { planError = state.focusPlan == nil ? error.localizedDescription : nil }
             }
             isPlanning = false
         }
@@ -147,14 +141,14 @@ struct ControlPanel: View {
     private var powerTile: some View {
         Button { state.isOn.toggle() } label: {
             HStack(spacing: 12) {
-                Dial(fraction: dialFraction(isOn: state.isOn, depth: state.depth))
+                Dial(fraction: dialFraction(isOn: state.isOn, depth: state.activeDepth))
                     .frame(width: 18, height: 18)
                     .frame(width: 40, height: 40)
                     .glassEffect(state.isOn ? .regular.tint(.primary) : .regular, in: .circle)
                     .foregroundStyle(state.isOn ? Color(nsColor: .windowBackgroundColor) : .primary)
                 VStack(alignment: .leading) {
                     Text("Tacet").font(.headline)
-                    Text(levelName(isOn: state.isOn, depth: state.depth))
+                    Text(levelName(isOn: state.isOn, depth: state.activeDepth))
                         .font(.subheadline).foregroundStyle(.secondary)
                         .contentTransition(.interpolate)
                 }
@@ -193,7 +187,7 @@ struct ControlPanel: View {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule().fill(.white.opacity(0.9))
-                        .frame(width: max(30, geo.size.width * state.depth))
+                        .frame(width: max(30, geo.size.width * state.activeDepth))
                     HStack {
                         Image(systemName: "circle").foregroundStyle(.black)
                         Spacer()
@@ -206,15 +200,15 @@ struct ControlPanel: View {
                 .glassEffect(.regular, in: .capsule)
                 .contentShape(.capsule)
                 .gesture(DragGesture(minimumDistance: 0).onChanged { g in
-                    state.depth = min(1, max(0.2, g.location.x / geo.size.width))
+                    state.activeDepth = min(1, max(0.2, g.location.x / geo.size.width))
                 })
             }
             .frame(height: 30)
             .accessibilityElement()
             .accessibilityLabel("Depth")
-            .accessibilityValue(levelName(isOn: true, depth: state.depth))
+            .accessibilityValue(levelName(isOn: true, depth: state.activeDepth))
             .accessibilityAdjustableAction { dir in
-                state.depth = min(1, max(0.2, state.depth + (dir == .increment ? 0.1 : -0.1)))
+                state.activeDepth = min(1, max(0.2, state.activeDepth + (dir == .increment ? 0.1 : -0.1)))
             }
         }
         .padding(12)
@@ -223,17 +217,19 @@ struct ControlPanel: View {
 
     private var clearTile: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Always clear").font(.subheadline.weight(.medium))
+            Text(state.focusPlan == nil ? "Always clear" : "Clear for this task")
+                .font(.subheadline.weight(.medium))
+                .contentTransition(.interpolate)
             HStack(spacing: 8) {
-                ForEach(state.clearApps, id: \.self) { id in
+                ForEach(state.activeClearApps, id: \.self) { id in
                     AppIcon(bundleID: id)
                         .transition(.scale.combined(with: .opacity))
-                        .contextMenu { Button("Remove") { state.clearApps.removeAll { $0 == id } } }
+                        .contextMenu { Button("Remove") { state.activeClearApps.removeAll { $0 == id } } }
                 }
                 Menu {
                     ForEach(addableApps, id: \.bundleIdentifier) { app in
                         Button(app.localizedName ?? app.bundleIdentifier ?? "") {
-                            if let id = app.bundleIdentifier { state.clearApps.append(id) }
+                            if let id = app.bundleIdentifier { state.activeClearApps.append(id) }
                         }
                     }
                 } label: {
@@ -262,7 +258,7 @@ struct ControlPanel: View {
 
     private var addableApps: [NSRunningApplication] {
         NSWorkspace.shared.runningApplications
-            .filter { $0.activationPolicy == .regular && $0.bundleIdentifier.map { !state.clearApps.contains($0) } ?? false }
+            .filter { $0.activationPolicy == .regular && $0.bundleIdentifier.map { !state.activeClearApps.contains($0) } ?? false }
             .sorted { ($0.localizedName ?? "") < ($1.localizedName ?? "") }
     }
 }

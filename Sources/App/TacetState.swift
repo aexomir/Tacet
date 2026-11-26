@@ -22,11 +22,12 @@ final class TacetState {
     var isOn = false {
         didSet { isOn ? engine.start() : engine.stop() }
     }
+    /// Your own settings. A focus query sits on top of them without changing them.
     var depth: Double {
-        didSet { engine.depth = depth; defaults.set(depth, forKey: "depth") }
+        didSet { syncEngine(); defaults.set(depth, forKey: "depth") }
     }
     var clearApps: [String] {
-        didSet { engine.clearApps = Set(clearApps); defaults.set(clearApps, forKey: "alwaysClear") }
+        didSet { syncEngine(); defaults.set(clearApps, forKey: "alwaysClear") }
     }
     var tuning: Tuning {
         didSet {
@@ -34,22 +35,44 @@ final class TacetState {
             defaults.set(try? JSONEncoder().encode(tuning), forKey: "tuning")
         }
     }
-    /// What a focus plan replaced, so the panel can offer Undo.
-    @ObservationIgnored private var beforePlan: (clearApps: [String], depth: Double, isOn: Bool)?
+    /// The active "What are you working on?" result. While set, it decides which apps stay clear
+    /// and how deep the blur goes; ending it puts your own settings back. Never saved, so a
+    /// relaunch always starts from your own settings.
+    private(set) var focusPlan: FocusPlanner.Plan? {
+        didSet { syncEngine() }
+    }
+    @ObservationIgnored private var wasOnBeforePlan = false
 
-    func apply(_ plan: FocusPlanner.Plan) {
-        beforePlan = beforePlan ?? (clearApps, depth, isOn)
-        clearApps = plan.apps.map(\.bundleID)
-        depth = plan.depth
+    func start(_ plan: FocusPlanner.Plan) {
+        if focusPlan == nil { wasOnBeforePlan = isOn }
+        focusPlan = plan  // a new query replaces the previous one; Undo still goes back to your settings
         isOn = true
     }
 
-    func undoPlan() {
-        guard let before = beforePlan else { return }
-        clearApps = before.clearApps
-        depth = before.depth
-        isOn = before.isOn
-        beforePlan = nil
+    func endPlan() {
+        guard focusPlan != nil else { return }
+        focusPlan = nil
+        isOn = wasOnBeforePlan
+    }
+
+    /// What the panel shows and edits: the query's values while one is active, otherwise yours.
+    var activeDepth: Double {
+        get { focusPlan?.depth ?? depth }
+        set { if focusPlan != nil { focusPlan?.depth = newValue } else { depth = newValue } }
+    }
+    var activeClearApps: [String] {
+        get { focusPlan?.apps.map(\.bundleID) ?? clearApps }
+        set {
+            guard let plan = focusPlan else { clearApps = newValue; return }
+            focusPlan?.apps = newValue.map { id in
+                (plan.apps.first { $0.bundleID == id }?.name ?? FocusPlanner.appName(id), id)
+            }
+        }
+    }
+
+    private func syncEngine() {
+        engine.depth = activeDepth
+        engine.clearApps = Set(activeClearApps)
     }
 
     var autoFocusOn: Bool {
@@ -65,8 +88,7 @@ final class TacetState {
         autoFocusOn = defaults.object(forKey: "autoFocus") as? Bool ?? true
         tuning = defaults.data(forKey: "tuning").flatMap { try? JSONDecoder().decode(Tuning.self, from: $0) } ?? Tuning()
         apply(tuning)
-        engine.depth = depth
-        engine.clearApps = Set(clearApps)
+        syncEngine()
         autoFocus.onChange = { [weak self] on in self?.isOn = on }
         if autoFocusOn { autoFocus.start() }
         pauseWhileScreenIsUnseen()

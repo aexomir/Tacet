@@ -38,6 +38,12 @@ enum FocusPlanner {
         return Plan(apps: apps, depth: answer.depth.value)
     }
 
+    /// Display name for an app the person added to a query by hand.
+    @MainActor
+    static func appName(_ bundleID: String) -> String {
+        NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier == bundleID }?.localizedName ?? bundleID
+    }
+
     /// Maps the model's app names back to running apps: exact match first, then whole-word containment
     /// either way ("Code" → "Visual Studio Code", but not "Xcode"), ignoring case. Keeps the model's
     /// order, no duplicates.

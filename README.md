@@ -22,7 +22,7 @@ Tacet/
 ├── Package.swift
 ├── Sources/
 │   ├── App/      Entry point and the saved settings
-│   ├── Panel/    Menu bar dial and the Liquid Glass control panel
+│   ├── Panel/    Menu bar dial, the Liquid Glass control panel, and the Settings window
 │   ├── Engine/   Per-screen overlay windows below the focused window, deeper layers over windows left alone
 │   └── Focus/    Auto-focus: blur on when you settle in, lift when you hop between apps
 └── Tests/

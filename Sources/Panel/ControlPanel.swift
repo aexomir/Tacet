@@ -61,6 +61,7 @@ struct ControlPanel: View {
                 }
                 depthTile
                 clearTile
+                settingsButton
             }
         }
         .animation(tileSpring, value: state.isOn)
@@ -177,6 +178,16 @@ struct ControlPanel: View {
         }
         .padding(12)
         .glassEffect(.regular, in: .rect(cornerRadius: 18))
+    }
+
+    // Like Control Center's "Edit Controls" pill under the tiles.
+    private var settingsButton: some View {
+        Button("Tacet Settings…") { presentation.openSettings() }
+            .buttonStyle(.plain)
+            .font(.subheadline.weight(.medium))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 6)
+            .glassEffect(.regular.interactive(), in: .capsule)
     }
 
     private var addableApps: [NSRunningApplication] {

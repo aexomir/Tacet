@@ -36,7 +36,16 @@ final class BlurEngine {
     }
 
     /// A window untouched this long gets one more dimming layer on top of it, per entry.
-    static let deepenAfter: [TimeInterval] = [5 * 60, 30 * 60]
+    var deepenAfter: [TimeInterval] = [5 * 60, 30 * 60]  // always two entries: one per deeper layer
+
+    /// Black opacity of each deeper layer.
+    var darkness = 0.35 {
+        didSet {
+            for overlay in overlays where overlay.level > 0 {
+                overlay.view.layer?.backgroundColor = NSColor.black.withAlphaComponent(darkness).cgColor
+            }
+        }
+    }
 
     private struct Overlay {
         let window: NSWindow
@@ -59,10 +68,10 @@ final class BlurEngine {
     func start() {
         guard !isOn else { return }
         startedAt = ProcessInfo.processInfo.systemUptime
-        overlays = (0...Self.deepenAfter.count).flatMap { level in
+        overlays = (0...deepenAfter.count).flatMap { level in
             NSScreen.screens.map { makeOverlay(for: $0, level: level) }
         }
-        anchors = Array(repeating: nil, count: Self.deepenAfter.count + 1)
+        anchors = Array(repeating: nil, count: deepenAfter.count + 1)
         holes = nil
         frontPID = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0
         activation = NSWorkspace.shared.notificationCenter.addObserver(
@@ -114,11 +123,11 @@ final class BlurEngine {
         lastFocused = lastFocused.filter { stack.contains($0.key) }
 
         let deep = front.map { front in
-            Self.deepAnchors(stack: stack, front: front, thresholds: Self.deepenAfter) {
+            Self.deepAnchors(stack: stack, front: front, thresholds: deepenAfter) {
                 now - (self.lastFocused[$0] ?? self.startedAt)
             }
         } ?? []
-        let wanted = [front] + (deep.isEmpty ? Array(repeating: nil, count: Self.deepenAfter.count) : deep)
+        let wanted = [front] + (deep.isEmpty ? Array(repeating: nil, count: deepenAfter.count) : deep)
         // Re-place layer 0 if something slid between it and the focused window: on an app switch we can
         // run before macOS has raised the new window, and ordering against it then lands too low.
         let layerZero = Set(overlays.filter { $0.level == 0 }.map { CGWindowID($0.window.windowNumber) })
@@ -176,7 +185,7 @@ final class BlurEngine {
         }
     }
 
-    // shortcut: deeper layers at 60% of the depth each, over a 35% black dim; tune by eye.
+    // shortcut: deeper layers at 60% of the depth each; tune by eye.
     private func alpha(for level: Int) -> Double { level == 0 ? depth : depth * 0.6 }
 
     /// Global top-left-origin bounds of every normal window owned by an Always clear app.
@@ -254,7 +263,7 @@ final class BlurEngine {
         } else {
             view = NSView()
             view.wantsLayer = true
-            view.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.35).cgColor
+            view.layer?.backgroundColor = NSColor.black.withAlphaComponent(darkness).cgColor
         }
         window.contentView = view
         window.setFrame(screen.frame, display: false)

@@ -2,15 +2,15 @@ import AppKit
 
 /// Decides when you've settled into one app (blur on) or are hopping between apps (blur off).
 struct FocusDecider {
-    let settleAfter: TimeInterval = 20      // seconds in one app before blurring
-    let recentInput: TimeInterval = 5       // must have typed or scrolled this recently
-    let hopWindow: TimeInterval = 10        // look back this far for app switches
-    let hopsToLift = 3                      // this many switches in the window lifts the blur
+    var tuning: Tuning
 
     private var inAppSince: TimeInterval = 0
     private var switches: [TimeInterval] = []
 
-    init(now: TimeInterval) { inAppSince = now }
+    init(now: TimeInterval, tuning: Tuning = Tuning()) {
+        inAppSince = now
+        self.tuning = tuning
+    }
 
     mutating func appChanged(at now: TimeInterval) {
         inAppSince = now
@@ -19,9 +19,9 @@ struct FocusDecider {
 
     /// true = blur, false = lift, nil = no opinion.
     mutating func decide(now: TimeInterval, idle: TimeInterval) -> Bool? {
-        switches.removeAll { now - $0 > hopWindow }
-        if switches.count >= hopsToLift { return false }
-        if now - inAppSince >= settleAfter && idle <= recentInput { return true }
+        switches.removeAll { now - $0 > tuning.hopWindow }
+        if switches.count >= tuning.hopsToLift { return false }
+        if now - inAppSince >= tuning.settleAfter && idle <= tuning.recentInput { return true }
         return nil
     }
 }
@@ -31,6 +31,9 @@ struct FocusDecider {
 @MainActor
 final class AutoFocus {
     var onChange: (Bool) -> Void = { _ in }
+    var tuning = Tuning() {
+        didSet { decider.tuning = tuning }
+    }
 
     private var decider = FocusDecider(now: 0)
     private var lastWish: Bool?
@@ -39,7 +42,7 @@ final class AutoFocus {
 
     func start() {
         guard timer == nil else { return }
-        decider = FocusDecider(now: ProcessInfo.processInfo.systemUptime)
+        decider = FocusDecider(now: ProcessInfo.processInfo.systemUptime, tuning: tuning)
         lastWish = nil
         observer = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main

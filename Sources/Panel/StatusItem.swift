@@ -5,6 +5,7 @@ import SwiftUI
 @MainActor @Observable
 final class PanelPresentation {
     var isOpen = false
+    @ObservationIgnored var openSettings: () -> Void = {}
 }
 
 /// The menu bar dial and the frameless panel it opens. Replaces MenuBarExtra, whose window
@@ -15,6 +16,7 @@ final class StatusItemController {
     private let presentation = PanelPresentation()
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private let panel: GlassPanel
+    private let settings: SettingsWindow
     private var clickMonitor: Any?
     private var shownFraction = 0.0
     private var iconTimer: Timer?
@@ -22,7 +24,9 @@ final class StatusItemController {
     init(state: TacetState) {
         self.state = state
         panel = GlassPanel(content: ControlPanel(state: state, presentation: presentation))
+        settings = SettingsWindow(state: state)
         panel.onCancel = { [weak self] in self?.close() }
+        presentation.openSettings = { [weak self] in self?.showSettings() }
 
         if let button = item.button {
             button.target = self
@@ -38,6 +42,8 @@ final class StatusItemController {
     @objc private func clicked() {
         if NSApp.currentEvent?.type == .rightMouseUp {
             let menu = NSMenu()
+            menu.addItem(withTitle: "Settings…", action: #selector(showSettings), keyEquivalent: ",").target = self
+            menu.addItem(.separator())
             menu.addItem(withTitle: "Quit Tacet", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
             // Attach the menu only for this click so a left click still opens the panel.
             item.menu = menu
@@ -46,6 +52,11 @@ final class StatusItemController {
         } else {
             presentation.isOpen ? close() : open()
         }
+    }
+
+    @objc private func showSettings() {
+        close()
+        settings.show()
     }
 
     private func open() {

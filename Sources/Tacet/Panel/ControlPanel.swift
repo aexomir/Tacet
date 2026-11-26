@@ -1,23 +1,22 @@
 import SwiftUI
 
+/// 0 = off, then 1...3 as depth goes from light to deep.
+private func level(isOn: Bool, depth: Double) -> Int {
+    !isOn ? 0 : depth < 0.45 ? 1 : depth < 0.75 ? 2 : 3
+}
+
 /// The menu bar circle: hollow when off, filling up with depth.
 func levelGlyph(isOn: Bool, depth: Double) -> String {
-    guard isOn else { return "○" }
-    return depth < 0.45 ? "◔" : depth < 0.75 ? "◑" : "●"
+    ["○", "◔", "◑", "●"][level(isOn: isOn, depth: depth)]
 }
 
 private func levelName(isOn: Bool, depth: Double) -> String {
-    guard isOn else { return "Off" }
-    return depth < 0.45 ? "Light" : depth < 0.75 ? "Medium" : "Deep"
+    ["Off", "Light", "Medium", "Deep"][level(isOn: isOn, depth: depth)]
 }
 
 /// Control Center–style Liquid Glass panel: power and Auto-focus tiles, Depth slider, Always clear apps.
 struct ControlPanel: View {
-    @Bindable var state: TacetState
-
-    private var isOn: Bool { state.isOn }
-    private var depth: Double { state.depth }
-    private var clearApps: [String] { state.clearApps }
+    let state: TacetState
 
     var body: some View {
         GlassEffectContainer(spacing: 10) {
@@ -37,14 +36,14 @@ struct ControlPanel: View {
     private var powerTile: some View {
         Button { state.isOn.toggle() } label: {
             HStack(spacing: 12) {
-                Text(levelGlyph(isOn: isOn, depth: depth))
+                Text(levelGlyph(isOn: state.isOn, depth: state.depth))
                     .font(.system(size: 20))
                     .frame(width: 40, height: 40)
-                    .glassEffect(isOn ? .regular.tint(.primary) : .regular, in: .circle)
-                    .foregroundStyle(isOn ? Color(nsColor: .windowBackgroundColor) : .primary)
+                    .glassEffect(state.isOn ? .regular.tint(.primary) : .regular, in: .circle)
+                    .foregroundStyle(state.isOn ? Color(nsColor: .windowBackgroundColor) : .primary)
                 VStack(alignment: .leading) {
                     Text("Tacet").font(.headline)
-                    Text(levelName(isOn: isOn, depth: depth)).font(.subheadline).foregroundStyle(.secondary)
+                    Text(levelName(isOn: state.isOn, depth: state.depth)).font(.subheadline).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
             }
@@ -80,7 +79,7 @@ struct ControlPanel: View {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule().fill(.white.opacity(0.9))
-                        .frame(width: max(30, geo.size.width * depth))
+                        .frame(width: max(30, geo.size.width * state.depth))
                     HStack {
                         Text("○").foregroundStyle(.black)
                         Spacer()
@@ -99,9 +98,9 @@ struct ControlPanel: View {
             .frame(height: 30)
             .accessibilityElement()
             .accessibilityLabel("Depth")
-            .accessibilityValue(levelName(isOn: true, depth: depth))
+            .accessibilityValue(levelName(isOn: true, depth: state.depth))
             .accessibilityAdjustableAction { dir in
-                state.depth = min(1, max(0.2, depth + (dir == .increment ? 0.1 : -0.1)))
+                state.depth = min(1, max(0.2, state.depth + (dir == .increment ? 0.1 : -0.1)))
             }
         }
         .padding(12)
@@ -112,7 +111,7 @@ struct ControlPanel: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Always clear").font(.subheadline.weight(.medium))
             HStack(spacing: 8) {
-                ForEach(clearApps, id: \.self) { id in
+                ForEach(state.clearApps, id: \.self) { id in
                     AppIcon(bundleID: id)
                         .contextMenu { Button("Remove") { state.clearApps.removeAll { $0 == id } } }
                 }
@@ -138,7 +137,7 @@ struct ControlPanel: View {
 
     private var addableApps: [NSRunningApplication] {
         NSWorkspace.shared.runningApplications
-            .filter { $0.activationPolicy == .regular && $0.bundleIdentifier.map { !clearApps.contains($0) } ?? false }
+            .filter { $0.activationPolicy == .regular && $0.bundleIdentifier.map { !state.clearApps.contains($0) } ?? false }
             .sorted { ($0.localizedName ?? "") < ($1.localizedName ?? "") }
     }
 }

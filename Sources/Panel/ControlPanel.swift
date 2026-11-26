@@ -123,6 +123,7 @@ struct ControlPanel: View {
     private func plan() {
         let text = task.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isPlanning else { return }
+        task = ""
         isPlanning = true
         Task {
             do {
